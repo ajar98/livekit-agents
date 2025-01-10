@@ -75,8 +75,7 @@ def _build_oai_audio_content(audio: llm.ChatAudio):
             wav_file.setnchannels(frames[0].num_channels)
             wav_file.setsampwidth(2)
             wav_file.setframerate(frames[0].sample_rate)
-            wav_file.writeframes(frames[0].to_wav_bytes())
-            for frame in frames[1:]:
+            for frame in frames:
                 wav_file.writeframes(frame._data)
         inmemory_wav.seek(0)
         audio_data = inmemory_wav.getvalue()

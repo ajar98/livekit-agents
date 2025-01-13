@@ -395,9 +395,11 @@ class SynthesizeStream(tts.SynthesizeStream):
         init_pkt = dict(
             text=" ",
             try_trigger_generation=True,
-            voice_settings=_strip_nones(dataclasses.asdict(self._opts.voice.settings))
-            if self._opts.voice.settings
-            else None,
+            voice_settings=(
+                _strip_nones(dataclasses.asdict(self._opts.voice.settings))
+                if self._opts.voice.settings
+                else None
+            ),
             generation_config=dict(
                 chunk_length_schedule=self._opts.chunk_length_schedule
             ),
@@ -450,7 +452,9 @@ class SynthesizeStream(tts.SynthesizeStream):
 
             last_frame: rtc.AudioFrame | None = None
 
-            def _send_last_frame(*, segment_id: str, is_final: bool) -> None:
+            def _send_last_frame(
+                *, segment_id: str, is_final: bool, delta_text: str = ""
+            ) -> None:
                 nonlocal last_frame
                 if last_frame is not None:
                     self._event_ch.send_nowait(
@@ -459,6 +463,7 @@ class SynthesizeStream(tts.SynthesizeStream):
                             segment_id=segment_id,
                             frame=last_frame,
                             is_final=is_final,
+                            delta_text=delta_text,
                         )
                     )
 
@@ -486,17 +491,31 @@ class SynthesizeStream(tts.SynthesizeStream):
                 encoding = _encoding_from_format(self._opts.encoding)
                 if data.get("audio"):
                     b64data = base64.b64decode(data["audio"])
+                    delta_text = ""
+                    if data.get("alignment"):
+                        delta_text = "".join(data["alignment"]["chars"])
                     if encoding == "mp3":
+                        is_first_frame = True
                         for frame in self._mp3_decoder.decode_chunk(b64data):
                             for frame in audio_bstream.write(frame.data.tobytes()):
-                                _send_last_frame(segment_id=segment_id, is_final=False)
+                                _send_last_frame(
+                                    segment_id=segment_id,
+                                    is_final=False,
+                                    delta_text=delta_text if is_first_frame else "",
+                                )
                                 last_frame = frame
+                                is_first_frame = False
 
                     else:
+                        is_first_frame = True
                         for frame in audio_bstream.write(b64data):
-                            _send_last_frame(segment_id=segment_id, is_final=False)
+                            _send_last_frame(
+                                segment_id=segment_id,
+                                is_final=False,
+                                delta_text=delta_text if is_first_frame else "",
+                            )
                             last_frame = frame
-
+                            is_first_frame = False
                 elif data.get("isFinal"):
                     for frame in audio_bstream.flush():
                         _send_last_frame(segment_id=segment_id, is_final=False)
